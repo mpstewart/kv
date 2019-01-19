@@ -7,11 +7,11 @@ use DBI;
 use Env qw( HOME );
 
 sub run         ( );
-sub write_item  ($);
-sub create_item ($);
-sub update_item ($);
-sub read_item   ($);
-sub exists_item ($);
+sub write_record  ($);
+sub create_record ($);
+sub update_record ($);
+sub read_record   ($);
+sub exists_record ($);
 
 our $DB_LOCATION = "$HOME/.kv.db";
 
@@ -29,70 +29,70 @@ sub run () {
     die "Must provide key\n" unless $KEY;
 
     if ($HAS_STDIN) {
-        write_item {
+        write_record {
             key   => $KEY,
             value => $VALUE,
         };
     } else {
-        die "No item found for key $KEY\n" unless exists_item $KEY;
+        die "No record found for key $KEY\n" unless exists_record $KEY;
 
-        my $value = read_item $KEY;
+        my $value = read_record $KEY;
         print $value;
     }
 
     exit 0;
 }
 
-sub write_item ($) {
-    my $item = shift;
+sub write_record ($) {
+    my $record = shift;
 
-    my $key   = $item->{key  };
-    my $value = $item->{value};
+    my $key   = $record->{key  };
+    my $value = $record->{value};
 
-    if (exists_item $key) {
-        update_item $item;
+    if (exists_record $key) {
+        update_record $record;
     } else {
-        create_item $item;
+        create_record $record;
     }
 
-    return $item;
+    return $record;
 }
 
-sub create_item ($) {
-    my $item = shift;
+sub create_record ($) {
+    my $record = shift;
 
     my @fields = qw( key value );
     my $fieldlist = join ", ", @fields;
     my $field_placeholders = join ", ", map {'?'} @fields;
 
-    my $dml = "INSERT INTO items ($fieldlist) VALUES ($field_placeholders)";
+    my $dml = "INSERT INTO records ($fieldlist) VALUES ($field_placeholders)";
 
     my $sth = $DBH->prepare($dml);
 
-    my @values = map { $item->{$_} } @fields;
+    my @values = map { $record->{$_} } @fields;
 
     $sth->execute(@values);
 }
 
-sub update_item ($) {
-    my $item = shift;
+sub update_record ($) {
+    my $record = shift;
 
-    my $key   = $item->{key  };
-    my $value = $item->{value};
+    my $key   = $record->{key  };
+    my $value = $record->{value};
 
-    my $dml = "UPDATE items set value = ? WHERE key = ?";
+    my $dml = "UPDATE records set value = ? WHERE key = ?";
 
     my $sth = $DBH->prepare($dml);
 
     $sth->execute($value, $key);
 
-    return $item;
+    return $record;
 }
 
-sub read_item ($) {
+sub read_record ($) {
     my $key = shift;
 
-    my $dql = "SELECT * FROM ITEMS WHERE key = ?";
+    my $dql = "SELECT * FROM records WHERE key = ?";
     my $sth = $DBH->prepare($dql);
 
     $sth->execute($key);
@@ -102,9 +102,9 @@ sub read_item ($) {
     return $result->{value};
 }
 
-sub exists_item ($) {
+sub exists_record ($) {
 	my $key = shift;
-	my $value = read_item $key;
+	my $value = read_record $key;
 	
 	return $value ? 1 : 0;
 }
@@ -115,7 +115,7 @@ sub exists_item ($) {
 # the database already exists, we just assume there's been a migration already,
 # so we don't do one. Easy and/or peasy.
 sub _init_dbh {
-    die "Unable to locate db store. Please run `make install`."
+    die "Unable to locate db store. Please run `make db_init` in project directory.\n"
         unless -f $DB_LOCATION;
     $DBH= DBI->connect("dbi:SQLite:dbname=$DB_LOCATION","","");
 }
