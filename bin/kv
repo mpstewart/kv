@@ -1,0 +1,14 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use v5.28.1;
+
+use Find::Lib '../lib/';
+
+use KV::App;
+
+my $kv = KV::App->new();
+
+$kv->run();
