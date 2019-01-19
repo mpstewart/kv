@@ -1,0 +1,50 @@
+#!/usr/bin/perl
+
+#-------------------------------------------------------------------------------
+#
+# Install and initialize the kv store
+#
+#-------------------------------------------------------------------------------
+
+use strict;
+use warnings;
+
+use DBI;
+
+use Find::Lib '../lib/';
+use KV::App;
+
+my $DBH;
+my $DB_LOCATION = $KV::App::DB_LOCATION;
+
+sub main     ( );
+sub _init_db ( );
+
+exit main();
+
+sub main () {
+    _init_db();
+
+    return 0;
+}
+    
+sub _init_db () {
+    if (-f $DB_LOCATION) {
+        die qq{ERROR: File \$HOME/.kv.db already exists.\nYou're either good to go, or something else has put a file there by that name.\n};
+    }
+
+    $DBH= DBI->connect("dbi:SQLite:dbname=$DB_LOCATION","","");
+
+    my $ddl = qq{
+        CREATE TABLE records(
+            record_id   INT PRIMARY KEY,
+            key       VARCHAR(20) UNIQUE,
+            value     VARCHAR(1000),
+            encrypted TINYINT(1) DEFAULT 0
+        );
+    };
+
+    my $sth = $DBH->prepare($ddl);
+
+    $sth->execute();
+}
