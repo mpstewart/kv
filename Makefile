@@ -1,2 +1,6 @@
 install:
-	pp -I lib -M KV::App -M KV::Schema -M KV::Schema::Result::Item ./bin/kv -o kv
+	cp -r lib/KV ~/perl5/lib/perl5/
+	cp bin/kv ~/bin/kv
+
+clean:
+	rm -rf ~/perl5/lib/perl5/KV/

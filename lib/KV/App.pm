@@ -3,144 +3,136 @@ use strict;
 use warnings;
 use utf8;
 
-use Find::Lib '../lib/';
-
-use Moose;
 use DBI;
-use Getopt::Long;
+use Env qw( HOME );
 
-use KV::Schema;
+sub run         ( );
+sub write_item  ($);
+sub create_item ($);
+sub update_item ($);
+sub read_item   ($);
+sub exists_item ($);
 
-has schema => (
-    is => 'ro',
-    isa => 'KV::Schema',
-    lazy_build => 1,
-);
+my $DB_LOCATION = "$HOME/.kv.db";
+my $DBH;
+   $DBH->{RaiseError} = 1;
 
-sub _build_schema {
-    my $self = shift;
+my $KEY = pop @ARGV if scalar @ARGV;
+my $VALUE = join "", <STDIN> unless (-t STDIN);
 
-    my $db_filename = $self->db_filename;
+my $HAS_STDIN = $VALUE ? 1 : 0;
 
-    return KV::Schema->connect("dbi:SQLite:$db_filename");
-}
+sub run () {
+    my $class = shift;
+    _init_db();
 
-has db_filename => (
-    is => 'ro',
-    isa => 'Str',
-    lazy_build => 1,
-);
+    die "Must provide key\n" unless $KEY;
 
-sub _build_db_filename { 
-    my $self = shift;
-
-    my $homedir = $ENV{HOME};
-
-    return "$homedir/.kv.db";
-}
-
-has stdin => (
-    is => 'ro',
-    isa => 'Maybe[Str]',
-    lazy_build => 1,
-);
-
-sub _build_stdin {
-    my $self = shift;
-
-    my $stdin;
-    if (-t STDIN) {
-        return undef;
+    if ($HAS_STDIN) {
+        write_item {
+            key   => $KEY,
+            value => $VALUE,
+        };
     } else {
-        $stdin = join "", <STDIN>;
+        die "No item found for key $KEY\n" unless exists_item $KEY;
+
+        my $value = read_item $KEY;
+        print $value;
     }
 
-    return $stdin;
+    exit 0;
 }
 
-has key => (
-    is => 'ro',
-    isa => 'Maybe[Str]',
-    lazy_build => 1,
-);
+sub write_item ($) {
+    my $item = shift;
 
-sub _build_key {
-    my $self = shift;
+    my $key   = $item->{key  };
+    my $value = $item->{value};
 
-    if (my $key = pop @ARGV) {
-        return $key;
-    }
-
-    die "Must have key to continue\n";
-}
-
-sub run {
-    my $self = shift;
-    $self->_init_db();
-
-    if ($self->stdin) {
-        $self->write_key();
+    if (exists_item $key) {
+        update_item $item;
     } else {
-        $self->read_key();
-    }
-}
-
-sub write_key {
-    my $self = shift;
-
-    my $key = $self->key;
-    my $value = $self->stdin;
-
-    eval {
-        $self->schema->resultset("Item")->create({
-            key => $key,
-            value => $value,
-        });
-    }; if ($@ =~ /UNIQUE/) {
-        die "You must specify a unique key name\n";
-    }
-}
-
-sub read_key {
-    my $self = shift;
-
-    my $key = $self->key;
-
-    my $item = $self->schema->resultset("Item")->find({
-        key => $key
-    });
-
-    if ($item) {
-        print $item->value if $item;
-        exit 0;
-    } else {
-        die "No value foud for key '$key'\n";
+        create_item $item;
     }
 
+    return $item;
 }
 
-# Creates and migrates a database file if none exists
+sub create_item ($) {
+    my $item = shift;
+
+    my @fields = qw( key value );
+    my $fieldlist = join ", ", @fields;
+    my $field_placeholders = join ", ", map {'?'} @fields;
+
+    my $dml = "INSERT INTO items ($fieldlist) VALUES ($field_placeholders)";
+
+    my $sth = $DBH->prepare($dml);
+
+    my @values = map { $item->{$_} } @fields;
+
+    $sth->execute(@values);
+}
+
+sub update_item ($) {
+    my $item = shift;
+
+    my $key   = $item->{key  };
+    my $value = $item->{value};
+
+    my $dml = "UPDATE items set value = ? WHERE key = ?";
+
+    my $sth = $DBH->prepare($dml);
+
+    $sth->execute($value, $key);
+
+    return $item;
+}
+
+sub read_item ($) {
+    my $key = shift;
+
+    my $dql = "SELECT * FROM ITEMS WHERE key = ?";
+    my $sth = $DBH->prepare($dql);
+
+    $sth->execute($key);
+
+    my $result = $sth->fetchrow_hashref();
+
+    return $result->{value};
+}
+
+sub exists_item ($) {
+	my $key = shift;
+	my $value = read_item $key;
+	
+	return $value ? 1 : 0;
+}
+
+# On first run, will create the database in $HOME/.kv.db, then initialize a DBI
+# connection to the store. In subsequent runs, will simply initialize the DBI
+# connection. 'Subsequent' is determined by the prior existence of the store. If
+# the database already exists, we just assume there's been a migration already,
+# so we don't do one. Easy and/or peasy.
 sub _init_db {
-    my $self = shift;
+    my $fresh_install = not -f $DB_LOCATION;
 
-    return if (-e $self->db_filename);
+    $DBH= DBI->connect("dbi:SQLite:dbname=$DB_LOCATION","","");
 
-    my $ddl = qq{
-        CREATE TABLE items(
-            item_id   INT PRIMARY KEY,
-            key       VARCHAR(20) UNIQUE,
-            value     VARCHAR(1000),
-            encrypted TINYINT(1) DEFAULT 0
-        );
-    };
+    if ($fresh_install) {
+        my $ddl = qq{
+            CREATE TABLE items(
+                item_id   INT PRIMARY KEY,
+                key       VARCHAR(20) UNIQUE,
+                value     VARCHAR(1000),
+                encrypted TINYINT(1) DEFAULT 0
+            );
+        };
 
-    my $dbfile = $self->db_filename;
-    my $dbh = DBI->connect("dbi:SQLite:dbname=$dbfile","","");
-    my $sth = $dbh->prepare($ddl);
+        my $sth = $DBH->prepare($ddl);
 
-    $sth->execute();
+        $sth->execute();
+    }
 }
-
-__PACKAGE__->meta->make_immutable();
 
 1;
