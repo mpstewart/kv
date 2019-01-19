@@ -13,9 +13,9 @@ sub update_item ($);
 sub read_item   ($);
 sub exists_item ($);
 
-my $DB_LOCATION = "$HOME/.kv.db";
+our $DB_LOCATION = "$HOME/.kv.db";
+
 my $DBH;
-   $DBH->{RaiseError} = 1;
 
 my $KEY = pop @ARGV if scalar @ARGV;
 my $VALUE = join "", <STDIN> unless (-t STDIN);
@@ -24,7 +24,7 @@ my $HAS_STDIN = $VALUE ? 1 : 0;
 
 sub run () {
     my $class = shift;
-    _init_db();
+    _init_dbh();
 
     die "Must provide key\n" unless $KEY;
 
@@ -114,25 +114,10 @@ sub exists_item ($) {
 # connection. 'Subsequent' is determined by the prior existence of the store. If
 # the database already exists, we just assume there's been a migration already,
 # so we don't do one. Easy and/or peasy.
-sub _init_db {
-    my $fresh_install = not -f $DB_LOCATION;
-
+sub _init_dbh {
+    die "Unable to locate db store. Please run `make install`."
+        unless -f $DB_LOCATION;
     $DBH= DBI->connect("dbi:SQLite:dbname=$DB_LOCATION","","");
-
-    if ($fresh_install) {
-        my $ddl = qq{
-            CREATE TABLE items(
-                item_id   INT PRIMARY KEY,
-                key       VARCHAR(20) UNIQUE,
-                value     VARCHAR(1000),
-                encrypted TINYINT(1) DEFAULT 0
-            );
-        };
-
-        my $sth = $DBH->prepare($ddl);
-
-        $sth->execute();
-    }
 }
 
 1;
